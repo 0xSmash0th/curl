@@ -491,6 +491,7 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
   const char *method;
   Curl_HttpReq httpreq;
   bool h2 = FALSE;
+  const char *te = ""; /* transfer-encoding */
 
   /* Always consider the DO phase done after this function call, even if there
      may be parts of the request that is not yet sent, since we can deal with
@@ -600,6 +601,10 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
     failf(data, "hyper_request_headers\n");
     goto error;
   }
+
+  result = Curl_http_body(data, conn, httpreq, &te);
+  if(result)
+    return result;
 
   if(data->state.aptr.host &&
      Curl_hyper_header(data, headers, data->state.aptr.host))

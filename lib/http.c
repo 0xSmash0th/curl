@@ -1564,7 +1564,6 @@ CURLcode Curl_http_done(struct connectdata *conn,
   return CURLE_OK;
 }
 
-#ifndef USE_HYPER
 /*
  * Determine if we should use HTTP 1.1 (OR BETTER) for this request. Reasons
  * to avoid it include:
@@ -1586,6 +1585,7 @@ static bool use_http_1_1plus(const struct Curl_easy *data,
           (data->set.httpversion >= CURL_HTTP_VERSION_1_1));
 }
 
+#ifndef USE_HYPER
 static const char *get_http_string(const struct Curl_easy *data,
                                    const struct connectdata *conn)
 {
@@ -1607,7 +1607,6 @@ static const char *get_http_string(const struct Curl_easy *data,
 }
 #endif
 
-#ifndef USE_HYPER
 /* check and possibly add an Expect: header */
 static CURLcode expect100(struct Curl_easy *data,
                           struct connectdata *conn,
@@ -1635,7 +1634,6 @@ static CURLcode expect100(struct Curl_easy *data,
 
   return result;
 }
-#endif
 
 enum proxy_use {
   HEADER_SERVER,  /* direct to server */
@@ -2183,6 +2181,23 @@ CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
   const char *ptr;
   struct HTTP *http = data->req.protop;
   http->postsize = 0;
+
+  switch(httpreq) {
+  case HTTPREQ_POST_MIME:
+    http->sendit = &data->set.mimepost;
+    break;
+  case HTTPREQ_POST_FORM:
+    /* Convert the form structure into a mime structure. */
+    Curl_mime_cleanpart(&http->form);
+    result = Curl_getformdata(data, &http->form, data->set.httppost,
+                              data->state.fread_func);
+    if(result)
+      return result;
+    http->sendit = &http->form;
+    break;
+  default:
+    http->sendit = NULL;
+  }
 
 #ifndef CURL_DISABLE_MIME
   if(http->sendit) {
@@ -2734,23 +2749,6 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
       return CURLE_OUT_OF_MEMORY;
   }
 #endif
-
-  switch(httpreq) {
-  case HTTPREQ_POST_MIME:
-    http->sendit = &data->set.mimepost;
-    break;
-  case HTTPREQ_POST_FORM:
-    /* Convert the form structure into a mime structure. */
-    Curl_mime_cleanpart(&http->form);
-    result = Curl_getformdata(data, &http->form, data->set.httppost,
-                              data->state.fread_func);
-    if(result)
-      return result;
-    http->sendit = &http->form;
-    break;
-  default:
-    http->sendit = NULL;
-  }
 
   result = Curl_http_body(data, conn, httpreq, &te);
   if(result)
