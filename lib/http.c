@@ -2176,6 +2176,76 @@ CURLcode Curl_http_target(struct Curl_easy *data,
   return result;
 }
 
+CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
+                        Curl_HttpReq httpreq, const char **tep)
+{
+  CURLcode result = CURLE_OK;
+  const char *ptr;
+#ifndef CURL_DISABLE_MIME
+  struct HTTP *http = data->req.protop;
+  if(http->sendit) {
+    const char *cthdr = Curl_checkheaders(conn, "Content-Type");
+
+    /* Read and seek body only. */
+    http->sendit->flags |= MIME_BODY_ONLY;
+
+    /* Prepare the mime structure headers & set content type. */
+
+    if(cthdr)
+      for(cthdr += 13; *cthdr == ' '; cthdr++)
+        ;
+    else if(http->sendit->kind == MIMEKIND_MULTIPART)
+      cthdr = "multipart/form-data";
+
+    curl_mime_headers(http->sendit, data->set.headers, 0);
+    result = Curl_mime_prepare_headers(http->sendit, cthdr,
+                                       NULL, MIMESTRATEGY_FORM);
+    curl_mime_headers(http->sendit, NULL, 0);
+    if(!result)
+      result = Curl_mime_rewind(http->sendit);
+    if(result)
+      return result;
+    http->postsize = Curl_mime_size(http->sendit);
+  }
+#endif
+
+  ptr = Curl_checkheaders(conn, "Transfer-Encoding");
+  if(ptr) {
+    /* Some kind of TE is requested, check if 'chunked' is chosen */
+    data->req.upload_chunky =
+      Curl_compareheader(ptr, "Transfer-Encoding:", "chunked");
+  }
+  else {
+    if((conn->handler->protocol & PROTO_FAMILY_HTTP) &&
+       (((httpreq == HTTPREQ_POST_MIME || httpreq == HTTPREQ_POST_FORM) &&
+         http->postsize < 0) ||
+        ((data->set.upload || httpreq == HTTPREQ_POST) &&
+         data->state.infilesize == -1))) {
+      if(conn->bits.authneg)
+        /* don't enable chunked during auth neg */
+        ;
+      else if(use_http_1_1plus(data, conn)) {
+        if(conn->httpversion < 20)
+          /* HTTP, upload, unknown file size and not HTTP 1.0 */
+          data->req.upload_chunky = TRUE;
+      }
+      else {
+        failf(data, "Chunky upload is not supported by HTTP 1.0");
+        return CURLE_UPLOAD_FAILED;
+      }
+    }
+    else {
+      /* else, no chunky upload */
+      data->req.upload_chunky = FALSE;
+    }
+
+    if(data->req.upload_chunky)
+      *tep = "Transfer-Encoding: chunked\r\n";
+  }
+  return result;
+}
+
+
 #ifndef USE_HYPER
 /*
  * Curl_http() gets called from the generic multi_do() function when a HTTP
@@ -2363,66 +2433,9 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
     http->sendit = NULL;
   }
 
-#ifndef CURL_DISABLE_MIME
-  if(http->sendit) {
-    const char *cthdr = Curl_checkheaders(conn, "Content-Type");
-
-    /* Read and seek body only. */
-    http->sendit->flags |= MIME_BODY_ONLY;
-
-    /* Prepare the mime structure headers & set content type. */
-
-    if(cthdr)
-      for(cthdr += 13; *cthdr == ' '; cthdr++)
-        ;
-    else if(http->sendit->kind == MIMEKIND_MULTIPART)
-      cthdr = "multipart/form-data";
-
-    curl_mime_headers(http->sendit, data->set.headers, 0);
-    result = Curl_mime_prepare_headers(http->sendit, cthdr,
-                                       NULL, MIMESTRATEGY_FORM);
-    curl_mime_headers(http->sendit, NULL, 0);
-    if(!result)
-      result = Curl_mime_rewind(http->sendit);
-    if(result)
-      return result;
-    http->postsize = Curl_mime_size(http->sendit);
-  }
-#endif
-
-  ptr = Curl_checkheaders(conn, "Transfer-Encoding");
-  if(ptr) {
-    /* Some kind of TE is requested, check if 'chunked' is chosen */
-    data->req.upload_chunky =
-      Curl_compareheader(ptr, "Transfer-Encoding:", "chunked");
-  }
-  else {
-    if((conn->handler->protocol & PROTO_FAMILY_HTTP) &&
-       (((httpreq == HTTPREQ_POST_MIME || httpreq == HTTPREQ_POST_FORM) &&
-         http->postsize < 0) ||
-        ((data->set.upload || httpreq == HTTPREQ_POST) &&
-         data->state.infilesize == -1))) {
-      if(conn->bits.authneg)
-        /* don't enable chunked during auth neg */
-        ;
-      else if(use_http_1_1plus(data, conn)) {
-        if(conn->httpversion < 20)
-          /* HTTP, upload, unknown file size and not HTTP 1.0 */
-          data->req.upload_chunky = TRUE;
-      }
-      else {
-        failf(data, "Chunky upload is not supported by HTTP 1.0");
-        return CURLE_UPLOAD_FAILED;
-      }
-    }
-    else {
-      /* else, no chunky upload */
-      data->req.upload_chunky = FALSE;
-    }
-
-    if(data->req.upload_chunky)
-      te = "Transfer-Encoding: chunked\r\n";
-  }
+  result = Curl_http_body(data, conn, httpreq, &te);
+  if(result)
+    return result;
 
   p_accept = Curl_checkheaders(conn, "Accept")?NULL:"Accept: */*\r\n";
 
