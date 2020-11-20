@@ -86,7 +86,10 @@ CURLcode Curl_http_statusline(struct Curl_easy *data,
 CURLcode Curl_http_header(struct Curl_easy *data, struct connectdata *conn,
                           char *headp);
 CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
-                        Curl_HttpReq httpreq, const char **teep);
+                        Curl_HttpReq httpreq,
+                        const char **teep);
+CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
+                            struct dynbuf *r, Curl_HttpReq httpreq);
 
 /* protocol-specific functions set up to be called by the main engine */
 CURLcode Curl_http(struct connectdata *conn, bool *done);
