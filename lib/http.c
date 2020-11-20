@@ -1103,6 +1103,7 @@ static int http_should_fail(struct connectdata *conn)
   return data->state.authproblem;
 }
 
+#ifndef USE_HYPER
 /*
  * readmoredata() is a "fread() emulation" to provide POST and/or request
  * data. It is used when a huge POST is to be made and the entire chunk wasn't
@@ -1323,6 +1324,8 @@ CURLcode Curl_buffer_send(struct dynbuf *in,
 
   return result;
 }
+
+#endif
 
 /* end of the add_buffer functions */
 /* ------------------------------------------------------------------------- */
@@ -2265,7 +2268,10 @@ CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
 CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
                             struct dynbuf *r, Curl_HttpReq httpreq)
 {
+#ifndef USE_HYPER
+  /* Hyper always handles the body separately */
   curl_off_t included_body = 0;
+#endif
   CURLcode result = CURLE_OK;
   struct HTTP *http = data->req.protop;
   const char *ptr;
@@ -2457,6 +2463,8 @@ CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
     else
       data->state.expect100header = FALSE;
 
+#ifndef USE_HYPER
+    /* With Hyper the body is always passed on separately */
     if(data->set.postfields) {
 
       /* In HTTP2, we send request body in DATA frame regardless of
@@ -2527,7 +2535,9 @@ CURLcode Curl_http_bodysend(struct Curl_easy *data, struct connectdata *conn,
           return result;
       }
     }
-    else {
+    else
+#endif
+    {
        /* end of headers! */
       result = Curl_dyn_add(r, "\r\n");
       if(result)

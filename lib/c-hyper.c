@@ -50,6 +50,7 @@
 #include "sendf.h"
 #include "transfer.h"
 #include "multiif.h"
+#include "progress.h"
 
 /* The last 3 #include files should be in this order */
 #include "curl_printf.h"
@@ -467,6 +468,20 @@ static CURLcode request_target(struct Curl_easy *data,
   return result;
 }
 
+static CURLcode bodysend(struct Curl_easy *data,
+                         struct connectdata *conn,
+                         Curl_HttpReq httpreq)
+{
+  CURLcode result;
+  struct dynbuf req;
+  Curl_dyn_init(&req, DYN_HTTP_REQUEST);
+  if((httpreq == HTTPREQ_GET) || (httpreq == HTTPREQ_HEAD))
+    Curl_pgrsSetUploadSize(data, 0); /* nothing */
+
+  result = Curl_http_bodysend(data, conn, &req, httpreq);
+
+  return result;
+}
 
 /*
  * Curl_http() gets called from the generic multi_do() function when a HTTP
@@ -632,6 +647,10 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
   }
 
   result = Curl_add_custom_headers(conn, FALSE, headers);
+  if(result)
+    return result;
+
+  result = bodysend(data, conn, httpreq);
   if(result)
     return result;
 

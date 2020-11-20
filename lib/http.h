@@ -55,11 +55,15 @@ char *Curl_copy_header_value(const char *header);
 
 char *Curl_checkProxyheaders(const struct connectdata *conn,
                              const char *thisheader);
+#ifndef USE_HYPER
 CURLcode Curl_buffer_send(struct dynbuf *in,
                           struct connectdata *conn,
                           curl_off_t *bytes_written,
                           size_t included_body_bytes,
                           int socketindex);
+#else
+#define Curl_buffer_send(a,b,c,d,e) CURLE_OK
+#endif
 
 CURLcode Curl_add_timecondition(const struct connectdata *conn,
                                 struct dynbuf *buf);
