@@ -503,13 +503,27 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
   result = Curl_http_host(data, conn);
   if(result)
     return result;
-  result = Curl_http_useragent(data, conn);
-  if(result)
-    return result;
 
   Curl_http_method(data, conn, &method, &httpreq);
 
-  p_accept = Curl_checkheaders(conn, "Accept")?NULL:"Accept: */*\r\n";
+  /* setup the authentication headers */
+  {
+    char *pq = NULL;
+    if(data->state.up.query) {
+      pq = aprintf("%s?%s", data->state.up.path, data->state.up.query);
+      if(!pq)
+        return CURLE_OUT_OF_MEMORY;
+    }
+    result = Curl_http_output_auth(conn, method,
+                                   (pq ? pq : data->state.up.path), FALSE);
+    free(pq);
+    if(result)
+      return result;
+  }
+
+  result = Curl_http_useragent(data, conn);
+  if(result)
+    return result;
 
   io = hyper_io_new();
   if(!io) {
@@ -591,10 +605,15 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
      Curl_hyper_header(data, headers, data->state.aptr.host))
     goto error;
 
+  if(data->state.aptr.userpwd &&
+     Curl_hyper_header(data, headers, data->state.aptr.userpwd))
+    goto error;
+
   if(data->state.aptr.uagent &&
      Curl_hyper_header(data, headers, data->state.aptr.uagent))
     goto error;
 
+  p_accept = Curl_checkheaders(conn, "Accept")?NULL:"Accept: */*\r\n";
   if(p_accept && Curl_hyper_header(data, headers, p_accept))
     goto error;
 
