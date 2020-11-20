@@ -405,7 +405,7 @@ CURLcode Curl_hyper_header(struct Curl_easy *data, hyper_headers *headers,
       /* this is fine if we already added at least one header */
       return numh ? CURLE_OK : CURLE_BAD_FUNCTION_ARGUMENT;
     nlen = p - n;
-    p++;
+    p++; /* move past the colon */
     while(*p == ' ')
       p++;
     v = p;
@@ -477,8 +477,14 @@ static CURLcode request_target(struct Curl_easy *data,
   return result;
 }
 
+/*
+ * bodysend() sets up headers in the outgoing request for a HTTP transfer that
+ * sends a body
+ */
+
 static CURLcode bodysend(struct Curl_easy *data,
                          struct connectdata *conn,
+                         hyper_headers *headers,
                          Curl_HttpReq httpreq)
 {
   CURLcode result;
@@ -488,6 +494,10 @@ static CURLcode bodysend(struct Curl_easy *data,
     Curl_pgrsSetUploadSize(data, 0); /* nothing */
 
   result = Curl_http_bodysend(data, conn, &req, httpreq);
+
+  if(!result)
+    result = Curl_hyper_header(data, headers, Curl_dyn_ptr(&req));
+
   Curl_dyn_free(&req);
 
   return result;
@@ -660,9 +670,11 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
   if(result)
     return result;
 
-  result = bodysend(data, conn, httpreq);
-  if(result)
-    return result;
+  if((httpreq != HTTPREQ_GET) && (httpreq != HTTPREQ_HEAD)) {
+    result = bodysend(data, conn, headers, httpreq);
+    if(result)
+      return result;
+  }
 
   Curl_debug(data, CURLINFO_HEADER_OUT, (char *)"\r\n", 2);
 
@@ -691,8 +703,11 @@ CURLcode Curl_http(struct connectdata *conn, bool *done)
     }
   } while(task);
 
-  /* HTTP GET/HEAD download */
-  Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE, -1);
+  if((httpreq == HTTPREQ_GET) || (httpreq == HTTPREQ_HEAD)) {
+    /* HTTP GET/HEAD download */
+    Curl_pgrsSetUploadSize(data, 0); /* nothing */
+    Curl_setup_transfer(data, FIRSTSOCKET, -1, TRUE, -1);
+  }
   conn->datastream = hyperstream;
 
   return CURLE_OK;
