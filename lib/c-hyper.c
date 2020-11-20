@@ -381,6 +381,8 @@ static CURLcode debug_request(struct Curl_easy *data,
 /*
  * Given a full header line "name: value" (optional CRLF in the input, should
  * be in the output), add to Hyper and send to the debug callback.
+ *
+ * Supports multiple headers.
  */
 
 CURLcode Curl_hyper_header(struct Curl_easy *data, hyper_headers *headers,
@@ -391,52 +393,59 @@ CURLcode Curl_hyper_header(struct Curl_easy *data, hyper_headers *headers,
   size_t nlen;
   const char *v;
   size_t vlen;
-  size_t linelen = 0;
   bool newline = TRUE;
+  int numh = 0;
 
   n = line;
-  p = strchr(line, ':');
-  if(!p)
-    return CURLE_BAD_FUNCTION_ARGUMENT;
-  nlen = p - line;
-  p++;
-  while(*p == ' ')
-    p++;
-  v = p;
-  p = strchr(v, '\r');
-  if(!p) {
-    p = strchr(v, '\n');
-    if(p)
-      linelen = 1; /* LF only */
-    else {
-      p = strchr(v, '\0');
-      newline = FALSE; /* no newline */
-    }
-  }
-  else
-    linelen = 2; /* CRLF ending */
-  linelen += (p - line);
-  if(!n)
-    return CURLE_BAD_FUNCTION_ARGUMENT;
-  vlen = p - v;
+  do {
+    size_t linelen = 0;
 
-  if(HYPERE_OK != hyper_headers_add(headers, (uint8_t *)n, nlen,
-                                    (uint8_t *)v, vlen)) {
-    failf(data, "hyper_headers_add host\n");
-    return CURLE_OUT_OF_MEMORY;
-  }
-  if(data->set.verbose) {
-    char *ptr = NULL;
-    if(!newline) {
-      ptr = aprintf("%.*s\r\n", (int)linelen, line);
-      if(!ptr)
-        return CURLE_OUT_OF_MEMORY;
-      Curl_debug(data, CURLINFO_HEADER_OUT, ptr, linelen + 2);
-      free(ptr);
+    p = strchr(n, ':');
+    if(!p)
+      /* this is fine if we already added at least one header */
+      return numh ? CURLE_OK : CURLE_BAD_FUNCTION_ARGUMENT;
+    nlen = p - n;
+    p++;
+    while(*p == ' ')
+      p++;
+    v = p;
+    p = strchr(v, '\r');
+    if(!p) {
+      p = strchr(v, '\n');
+      if(p)
+        linelen = 1; /* LF only */
+      else {
+        p = strchr(v, '\0');
+        newline = FALSE; /* no newline */
+      }
     }
     else
-      Curl_debug(data, CURLINFO_HEADER_OUT, (char *)line, linelen);
-  }
+      linelen = 2; /* CRLF ending */
+    linelen += (p - n);
+    if(!n)
+      return CURLE_BAD_FUNCTION_ARGUMENT;
+    vlen = p - v;
+
+    if(HYPERE_OK != hyper_headers_add(headers, (uint8_t *)n, nlen,
+                                      (uint8_t *)v, vlen)) {
+      failf(data, "hyper_headers_add host\n");
+      return CURLE_OUT_OF_MEMORY;
+    }
+    if(data->set.verbose) {
+      char *ptr = NULL;
+      if(!newline) {
+        ptr = aprintf("%.*s\r\n", (int)linelen, line);
+        if(!ptr)
+          return CURLE_OUT_OF_MEMORY;
+        Curl_debug(data, CURLINFO_HEADER_OUT, ptr, linelen + 2);
+        free(ptr);
+      }
+      else
+        Curl_debug(data, CURLINFO_HEADER_OUT, (char *)line, linelen);
+    }
+    numh++;
+    n += linelen;
+  } while(newline);
   return CURLE_OK;
 }
 
@@ -479,6 +488,7 @@ static CURLcode bodysend(struct Curl_easy *data,
     Curl_pgrsSetUploadSize(data, 0); /* nothing */
 
   result = Curl_http_bodysend(data, conn, &req, httpreq);
+  Curl_dyn_free(&req);
 
   return result;
 }
